@@ -161,8 +161,7 @@ class CogVideoXT2VLoraTrainer(DiffusionTrainer):
     @override
     def compute_loss(self, batch) -> torch.Tensor:
         device = self.state.device
-        prompt_embedding = batch["prompt_embedding"].to(device)
-        latent = batch["encoded_videos"].to(device)
+        latent, prompt_embedding = self._prepare_training_batch(batch)
 
         assert latent is not None and prompt_embedding is not None
 
@@ -195,7 +194,12 @@ class CogVideoXT2VLoraTrainer(DiffusionTrainer):
         # Add noise to latent
         latent = latent.permute(0, 2, 1, 3, 4)  # from [B, C, F, H, W] to [B, F, C, H, W]
         noise = torch.randn_like(latent)
-        latent_added_noise = self.components.scheduler.add_noise(latent, noise, timesteps)
+        latent_added_noise = self._add_training_noise(
+            clean_latent=latent,
+            noise=noise,
+            timesteps=timesteps,
+            batch=batch,
+        )
 
         # Prepare rotary embeds
         vae_scale_factor_spatial = 2 ** (len(self.components.vae.config.block_out_channels) - 1)
@@ -229,16 +233,57 @@ class CogVideoXT2VLoraTrainer(DiffusionTrainer):
 
         alphas_cumprod = self.components.scheduler.alphas_cumprod[timesteps]
         weights = 1 / (1 - alphas_cumprod)
-        while len(weights.shape) < len(latent_pred.shape):
-            weights = weights.unsqueeze(-1)
+        return self._compute_training_loss(
+            prediction=latent_pred,
+            target=latent,
+            timestep_weights=weights,
+            batch=batch,
+        )
 
+    def _prepare_training_batch(
+        self, batch: dict[str, Any]
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Move a native CogVideoX training batch to the active device.
+
+        Subclasses may adapt a different dataset representation here while the
+        scheduler, RoPE, Transformer forward, and velocity conversion remain
+        owned by the native CogVideoX trainer.
+        """
+
+        device = self.state.device
+        prompt_embedding = batch["prompt_embedding"].to(device)
+        latent = batch["encoded_videos"].to(device)
+        return latent, prompt_embedding
+
+    def _add_training_noise(
+        self,
+        *,
+        clean_latent: torch.Tensor,
+        noise: torch.Tensor,
+        timesteps: torch.Tensor,
+        batch: dict[str, Any],
+    ) -> torch.Tensor:
+        del batch
+        return self.components.scheduler.add_noise(clean_latent, noise, timesteps)
+
+    def _compute_training_loss(
+        self,
+        *,
+        prediction: torch.Tensor,
+        target: torch.Tensor,
+        timestep_weights: torch.Tensor,
+        batch: dict[str, Any],
+    ) -> torch.Tensor:
+        del batch
+        weights = timestep_weights
+        while weights.ndim < prediction.ndim:
+            weights = weights.unsqueeze(-1)
+        batch_size = target.shape[0]
         loss = torch.mean(
-            (weights * (latent_pred - latent) ** 2).reshape(batch_size, -1),
+            (weights * (prediction - target) ** 2).reshape(batch_size, -1),
             dim=1,
         )
-        loss = loss.mean()
-
-        return loss
+        return loss.mean()
 
     @override
     def validation_step(

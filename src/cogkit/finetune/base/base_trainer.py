@@ -320,6 +320,7 @@ class BaseTrainer(ABC):
         for epoch in range(initial_epoch, self.uargs.train_epochs):
             self.logger.debug(f"Starting epoch ({epoch + 1}/{self.uargs.train_epochs})")
 
+            self.on_train_epoch_start(epoch)
             self.components.transformer.train()
 
             for step, batch in enumerate(self.train_data_loader):
@@ -350,6 +351,19 @@ class BaseTrainer(ABC):
             self.logger.info(
                 f"Memory after epoch {epoch + 1}: {json.dumps(memory_statistics, indent=4)}"
             )
+
+    def on_train_epoch_start(self, epoch: int) -> None:
+        """Advance epoch-aware input state without duplicating the train loop.
+
+        ``DistributedSampler`` requires ``set_epoch`` for a fresh deterministic
+        shuffle on every epoch. Subclasses may extend this hook for other
+        epoch-dependent dataset semantics and should call ``super()``.
+        """
+
+        sampler = getattr(self.train_data_loader, "sampler", None)
+        set_epoch = getattr(sampler, "set_epoch", None)
+        if callable(set_epoch):
+            set_epoch(epoch)
 
     def train_step(self, batch: dict[str, Any], sync_grad: bool) -> dict[str, Any]:
         logs = {}

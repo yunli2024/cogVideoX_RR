@@ -1,0 +1,62 @@
+# Formal CogVideoX-5B RolloutRemover training on the audited 64,505-entry cache.
+# RR trajectory semantics follow the live WAN14B cached launch; optimizer,
+# scheduler, LoRA injection, RoPE, target conversion, DDP and checkpoint format
+# remain CogKit/CogVideoX native.
+name4train: "rolloutremover-cogvideox5b-480x720-c4r5g1p2-seed42-v1"
+log_level: "INFO"
+
+model_name: "cogvideox-rollout-t2v"
+model_path: "/mnt/cpfs/jiachengliu/pretrained_models/CogVideoX-5b"
+output_dir: "/mnt/cpfs/jiachengliu/dataset/CORNE/ckpt/cogkit_rolloutremover_cogvideox5b_480x720_c4r5g1p2_seed42_v1"
+report_to: "wandb"
+
+data_root: "/mnt/cpfs/jiachengliu/dataset/CORNE"
+rollout_manifest: "/mnt/cpfs/jiachengliu/dataset/CORNE/cache/cogvideox_rollout_5b_14f_mode_480x720_v1/manifests/manifest_64505.jsonl"
+rollout_cache_dir: "/mnt/cpfs/jiachengliu/dataset/CORNE/cache/cogvideox_rollout_5b_14f_mode_480x720_v1/latents"
+rollout_prompt: "Remove the masked object and its side effect"
+rollout_preset: "wan14b_maskpred_c4r5_g1p2_14f"
+rollout_seed: 42
+rollout_expected_vae_scaling_factor: 0.7
+rollout_expected_posterior_mode: "mode"
+
+seed: 42
+training_type: "lora"
+strategy: "DDP"
+low_vram: false
+offload_params_grads: false
+no_grad_sync_when_accumulating: false
+enable_packing: false
+enable_slicing: true
+enable_tiling: true
+train_resolution: [14, 480, 720]
+
+# Match the live WAN14B-RR training budget and per-rank batch policy.
+train_epochs: 4
+batch_size: 1
+gradient_accumulation_steps: 1
+mixed_precision: "bf16"
+gradient_checkpointing: true
+
+# CogVideoX-native/community optimizer values authorized for this adapter.
+learning_rate: 1.0e-4
+optimizer: "adamw"
+beta1: 0.9
+beta2: 0.95
+epsilon: 1.0e-8
+weight_decay: 1.0e-4
+max_grad_norm: 1.0
+lr_scheduler: "CosineAnnealingLR"
+
+num_workers: 0
+pin_memory: true
+
+# At 4-8 ranks this retains every planned checkpoint without entering CogKit's
+# automatic checkpoint-deletion branch. A forced-final-save/resume patch remains
+# a separate review item and is not silently included here.
+checkpointing_steps: 200
+checkpointing_limit: 300
+resume_from_checkpoint: null
+
+do_validation: false
+validation_steps: null
+gen_fps: 8

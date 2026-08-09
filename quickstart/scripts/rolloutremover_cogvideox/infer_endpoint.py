@@ -10,6 +10,7 @@ from typing import Any
 
 import numpy as np
 import torch
+from diffusers import CogVideoXDPMScheduler
 from PIL import Image
 
 from cogkit.finetune.diffusion.models.cogvideo.cogvideox_endpoint_t2v.contract import (
@@ -31,9 +32,10 @@ from cogkit.finetune.diffusion.models.cogvideo.cogvideox_endpoint_t2v.inference 
 from cogkit.utils import load_pipeline
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 DEFAULT_PROMPT = "Remove the masked object and its side effect"
 LORA_WEIGHT_NAME = "adapter_model.safetensors"
+SCHEDULER_CONFIG_NAME = "scheduler_config.json"
 REQUIRED_TENSORS = {
     "source",
     "gt",
@@ -62,7 +64,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--cache_dir", type=Path, required=True)
     parser.add_argument("--output_dir", type=Path, required=True)
-    parser.add_argument("--sample_ids", nargs="+", required=True)
+    sample_group = parser.add_mutually_exclusive_group(required=True)
+    sample_group.add_argument("--sample_ids", nargs="+")
+    sample_group.add_argument("--sample_ids_file", type=Path)
     parser.add_argument(
         "--mask_condition_kind",
         choices=("mask_check", "mask_sam"),
@@ -73,6 +77,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--height", type=int, default=480)
     parser.add_argument("--width", type=int, default=720)
     parser.add_argument("--num_inference_steps", type=int, default=50)
+    parser.add_argument(
+        "--scheduler",
+        choices=("dpm",),
+        required=True,
+        help="Explicit reverse solver; required to prevent base-config fallback drift.",
+    )
     parser.add_argument("--guidance_scale", type=float, default=6.0)
     parser.add_argument(
         "--use_dynamic_cfg", action=argparse.BooleanOptionalAction, default=False
@@ -85,6 +95,24 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--dry_run_contract", action="store_true")
     return parser.parse_args()
+
+
+def _resolve_sample_ids(args: argparse.Namespace) -> list[str]:
+    if args.sample_ids_file is None:
+        sample_ids = list(args.sample_ids)
+    else:
+        if not args.sample_ids_file.is_file():
+            raise FileNotFoundError(f"missing sample ID file: {args.sample_ids_file}")
+        sample_ids = [
+            line.strip()
+            for line in args.sample_ids_file.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+    if not sample_ids:
+        raise ValueError("at least one sample ID is required")
+    if len(set(sample_ids)) != len(sample_ids):
+        raise ValueError("sample IDs must not contain duplicates")
+    return sample_ids
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -232,6 +260,32 @@ def _dtype(name: str) -> torch.dtype:
     return {"bf16": torch.bfloat16, "fp16": torch.float16, "fp32": torch.float32}[name]
 
 
+def _load_explicit_scheduler(model_path: Path) -> tuple[CogVideoXDPMScheduler, dict[str, Any]]:
+    config_path = model_path / "scheduler" / SCHEDULER_CONFIG_NAME
+    if not config_path.is_file():
+        raise FileNotFoundError(f"missing scheduler config: {config_path}")
+    scheduler = CogVideoXDPMScheduler.from_pretrained(
+        str(model_path),
+        subfolder="scheduler",
+    )
+    if scheduler.__class__ is not CogVideoXDPMScheduler:
+        raise TypeError(
+            "scheduler class drift: expected CogVideoXDPMScheduler, "
+            f"got {scheduler.__class__.__name__}"
+        )
+    config = scheduler.config
+    metadata = {
+        "kind": "dpm",
+        "class_name": scheduler.__class__.__name__,
+        "config_path": str(config_path),
+        "config_sha256": sha256_file(config_path),
+        "prediction_type": str(getattr(config, "prediction_type", "unknown")),
+        "timestep_spacing": str(getattr(config, "timestep_spacing", "unknown")),
+        "num_train_timesteps": int(getattr(config, "num_train_timesteps")),
+    }
+    return scheduler, metadata
+
+
 def _to_pil(frame: torch.Tensor) -> Image.Image:
     if frame.ndim != 3 or frame.shape[0] != 3:
         raise ValueError("decoded frame must be [3,H,W]")
@@ -248,10 +302,12 @@ def _write_json_exclusive(path: Path, payload: Any) -> None:
 
 def main() -> None:
     args = parse_args()
+    args.sample_ids = _resolve_sample_ids(args)
     lora_weight = _validate_paths(args)
     contract = EndpointContract()
     training = _load_json(args.training_contract)
     _validate_training_contract(args, training, contract)
+    scheduler, scheduler_metadata = _load_explicit_scheduler(args.model_path)
     manifest_records = _load_manifest_records(args.manifest, args.sample_ids)
     cached = {
         sample_id: _load_cached_sample(
@@ -285,6 +341,7 @@ def main() -> None:
         "height": args.height,
         "width": args.width,
         "num_inference_steps": args.num_inference_steps,
+        "scheduler": scheduler_metadata,
         "guidance_scale": args.guidance_scale,
         "use_dynamic_cfg": bool(args.use_dynamic_cfg),
         "seed": args.seed,
@@ -311,6 +368,9 @@ def main() -> None:
         lora_model_id_or_path=str(args.lora_path),
         dtype=weight_dtype,
     ).to(device)
+    pipeline.scheduler = scheduler
+    if pipeline.scheduler.__class__ is not CogVideoXDPMScheduler:
+        raise RuntimeError("loaded pipeline scheduler disagrees with explicit DPM contract")
     pipeline.transformer.eval()
     pipeline.text_encoder.eval()
     pipeline.vae.eval()

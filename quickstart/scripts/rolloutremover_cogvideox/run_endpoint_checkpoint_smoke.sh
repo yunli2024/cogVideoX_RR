@@ -57,6 +57,7 @@ CUDA_VISIBLE_DEVICES="${GPU}" python "${SCRIPT_DIR}/infer_endpoint.py" \
   --height 480 \
   --width 720 \
   --num_inference_steps 50 \
+  --scheduler dpm \
   --guidance_scale 6.0 \
   --seed 42 \
   --dtype bf16 \

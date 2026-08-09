@@ -27,6 +27,7 @@ TRAINING_CONTRACT="${TRAIN_ROOT}/endpoint_training_contract.json"
 
 mkdir -p "${LOG_ROOT}"
 source "${VENV}/bin/activate"
+export PYTHONPATH="${CODE_ROOT}/src${PYTHONPATH:+:${PYTHONPATH}}"
 cd "${CODE_ROOT}"
 
 python "${SCRIPT_DIR}/export_dcp_lora.py" \

@@ -42,6 +42,7 @@ fi
 
 mkdir -p "${LOG_ROOT}"
 source "${VENV}/bin/activate"
+export PYTHONPATH="${CODE_ROOT}/src${PYTHONPATH:+:${PYTHONPATH}}"
 cd "${CODE_ROOT}"
 
 CUDA_VISIBLE_DEVICES="${GPU}" python "${SCRIPT_DIR}/infer_endpoint.py" \

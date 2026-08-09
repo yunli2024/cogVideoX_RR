@@ -175,3 +175,17 @@ def test_decode_is_one_vae_call_per_state_with_temporal_length_one():
     decoded = decode_endpoint_states_individually(vae, latents)
     assert decoded.shape == (1, 3, 3, 2, 2)
     assert vae.calls == [(1, 3, 1, 2, 2)] * 3
+
+
+if __name__ == "__main__":
+    tests = [
+        test_initial_latents_are_mask_source_and_noise_only,
+        test_restore_and_zero_are_non_mutating,
+        test_sample_seed_is_stable_and_sample_specific,
+        test_sampler_clamps_conditions_and_updates_target,
+        test_sampler_supports_native_cogvideox_dpm_scheduler,
+        test_decode_is_one_vae_call_per_state_with_temporal_length_one,
+    ]
+    for test in tests:
+        test()
+    print(f"PASSED: {len(tests)} focused CogVideoX Endpoint inference tests")

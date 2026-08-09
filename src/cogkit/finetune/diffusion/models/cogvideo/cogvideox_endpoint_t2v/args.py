@@ -24,7 +24,7 @@ class CogVideoXEndpointArgs(BaseArgs):
     endpoint_prompt: str = "Remove the masked object and its side effect"
     endpoint_seed: int = 42
     endpoint_mask_sam_probability: float = 0.5
-    endpoint_loss_normalization: Literal["full_tensor_mean", "active_weight_mean"] = "full_tensor_mean"
+    endpoint_loss_normalization: Literal["full_tensor_mean", "active_weight_mean"] = "active_weight_mean"
     endpoint_loss_outlier_abs_threshold: float | None = 50.0
     endpoint_expected_vae_scaling_factor: float = 0.7
     endpoint_expected_posterior_mode: Literal["mode"] = "mode"

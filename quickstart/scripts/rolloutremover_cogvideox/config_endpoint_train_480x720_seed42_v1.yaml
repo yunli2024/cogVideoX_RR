@@ -12,7 +12,7 @@ endpoint_cache_dir: "/mnt/cpfs/jiachengliu/dataset/CORNE/cache/cogvideox_rollout
 endpoint_prompt: "Remove the masked object and its side effect"
 endpoint_seed: 42
 endpoint_mask_sam_probability: 0.5
-endpoint_loss_normalization: "full_tensor_mean"
+endpoint_loss_normalization: "active_weight_mean"
 endpoint_loss_outlier_abs_threshold: 50.0
 endpoint_expected_vae_scaling_factor: 0.7
 endpoint_expected_posterior_mode: "mode"

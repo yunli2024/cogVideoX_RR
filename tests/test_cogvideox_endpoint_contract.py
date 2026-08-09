@@ -76,7 +76,7 @@ def test_endpoint_clamps_only_conditions_and_supervises_only_target() -> None:
         contract,
     )
     assert loss.dtype == torch.float32
-    assert loss.item() == pytest.approx(1.0 / 3.0)
+    assert loss.item() == pytest.approx(1.0)
 
 
 def test_endpoint_adapter_runs_native_compute_loss_and_backward() -> None:

@@ -15,7 +15,7 @@ class EndpointContract:
 
     name: str = "mask_source_direct_target_3f_v1"
     mask_sam_probability: float = 0.5
-    loss_normalization: str = "full_tensor_mean"
+    loss_normalization: str = "active_weight_mean"
     loss_outlier_abs_threshold: float | None = 50.0
 
     def __post_init__(self) -> None:
